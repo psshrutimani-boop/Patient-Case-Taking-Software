@@ -2,10 +2,6 @@ import io
 import speech_recognition as sr
 
 
-# ============================================================
-# LANGUAGE CODES
-# ============================================================
-
 LANGUAGE_CODES = {
     "English": "en-IN",
     "Tamil": "ta-IN",
@@ -13,33 +9,17 @@ LANGUAGE_CODES = {
 }
 
 
-# ============================================================
-# GET LANGUAGE CODE
-# ============================================================
-
 def get_language_code(language="English"):
-
-    return LANGUAGE_CODES.get(
-        language,
-        "en-IN"
-    )
+    return LANGUAGE_CODES.get(language, "en-IN")
 
 
-# ============================================================
-# VOICE TO TEXT
-# ============================================================
-
-def convert_voice_to_text(
-    audio_bytes,
-    language="English"
-):
+def convert_voice_to_text(audio_bytes, language="English"):
 
     if not audio_bytes:
         return ""
 
     try:
 
-        # Streamlit AudioInput / UploadedFile support
         if hasattr(audio_bytes, "getvalue"):
             audio_bytes = audio_bytes.getvalue()
 
@@ -50,11 +30,8 @@ def convert_voice_to_text(
         audio_file = io.BytesIO(audio_bytes)
 
         with sr.AudioFile(audio_file) as source:
-
-            # Record complete audio
             audio = recognizer.record(source)
 
-        # Google Speech Recognition
         text = recognizer.recognize_google(
             audio,
             language=language_code
@@ -78,6 +55,4 @@ def convert_voice_to_text(
 
     except Exception as e:
 
-        return (
-            f"Voice processing error: {str(e)}"
-        )
+        return f"Voice processing error: {str(e)}"
