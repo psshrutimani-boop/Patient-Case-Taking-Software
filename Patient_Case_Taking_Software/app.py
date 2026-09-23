@@ -1,16 +1,28 @@
 import streamlit as st
 from datetime import datetime
+import re
+
+
+# ============================================================
+# MODULE IMPORTS
+# ============================================================
 
 from modules.adaptive_questions import get_follow_up_questions
-from modules.voice_input import convert_voice_to_text
-from modules.symptom_extractor import extract_symptoms
-from modules.ocr_processor import extract_text_from_image
-from modules.red_flag_detector import detect_red_flags
-from modules.ai_case_summary import generate_case_summary
 
-# ============================================================
-# STEP 13 - SQLITE DATABASE
-# ============================================================
+from modules.voice_input import convert_voice_to_text
+
+from modules.text_to_speech import generate_question_audio
+
+from modules.symptom_extractor import (
+    extract_symptoms,
+    extract_duration
+)
+
+from modules.ocr_processor import extract_text_from_image
+
+from modules.red_flag_detector import detect_red_flags
+
+from modules.ai_case_summary import generate_case_summary
 
 from modules.database import (
     initialize_database,
@@ -28,9 +40,10 @@ from modules.database import (
 # ============================================================
 
 st.set_page_config(
-    page_title="Patient Case Taking System",
+    page_title="Patient Case Taking Software",
     page_icon="🏥",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 
@@ -43,127 +56,85 @@ st.markdown(
     <style>
 
     .stApp {
-        background-color: #0b1117;
-        color: white;
+        background-color: #080b10;
+        color: #f5f5f5;
     }
 
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-        max-width: 1200px;
+    section[data-testid="stSidebar"] {
+        background-color: #0d1117;
+        border-right: 1px solid #222831;
     }
 
     .main-title {
-        text-align: center;
-        color: #4da6ff;
-        font-size: 42px;
+        font-size: 38px;
         font-weight: 700;
+        color: #ffffff;
         margin-bottom: 5px;
     }
 
-    .subtitle {
-        text-align: center;
-        color: #aab7c4;
+    .sub-title {
         font-size: 17px;
-        margin-bottom: 30px;
+        color: #9ca3af;
+        margin-bottom: 25px;
     }
 
-    .card {
-        background-color: #121c26;
-        border: 1px solid #263746;
-        border-radius: 18px;
-        padding: 28px;
-        margin-top: 20px;
+    .hospital-card {
+        background: #111827;
+        padding: 25px;
+        border-radius: 16px;
+        border: 1px solid #263241;
         margin-bottom: 20px;
-        box-shadow: 0px 8px 30px rgba(0, 0, 0, 0.4);
     }
 
-    .section-title {
-        color: #4da6ff;
-        font-size: 25px;
-        font-weight: 600;
-        margin-bottom: 18px;
-    }
-
-    .step-title {
-        color: #66b3ff;
-        font-size: 21px;
-        font-weight: 600;
-        margin-top: 25px;
-        margin-bottom: 12px;
-    }
-
-    .success-box {
-        background-color: #10251b;
-        border: 1px solid #1f7a46;
-        border-radius: 12px;
-        padding: 15px;
-        color: #8ff0b2;
-    }
-
-    .warning-box {
-        background-color: #2b2110;
-        border: 1px solid #9a6b1e;
-        border-radius: 12px;
-        padding: 15px;
-        color: #ffd27a;
-    }
-
-    .danger-box {
-        background-color: #321416;
-        border: 1px solid #b83a40;
-        border-radius: 12px;
-        padding: 18px;
-        color: #ff9da3;
-    }
-
-    .timeline-card {
-        background-color: #111d27;
-        border-left: 4px solid #1677ff;
-        border-radius: 12px;
-        padding: 20px;
+    .question-card {
+        background: #111827;
+        padding: 25px;
+        border-radius: 18px;
+        border: 1px solid #374151;
         margin-top: 15px;
-        margin-bottom: 15px;
+        margin-bottom: 20px;
     }
 
-    .timeline-date {
-        color: #66b3ff;
-        font-size: 19px;
-        font-weight: 700;
-    }
-
-    .timeline-label {
-        color: #aab7c4;
+    .question-number {
+        color: #60a5fa;
         font-size: 14px;
-    }
-
-    .timeline-value {
-        color: white;
-        font-size: 16px;
-    }
-
-    .stButton > button {
-        width: 100%;
-        background-color: #1677ff;
-        color: white;
-        border: none;
-        border-radius: 10px;
-        padding: 12px;
-        font-size: 16px;
         font-weight: 600;
     }
 
-    .stButton > button:hover {
-        background-color: #0d5fd1;
-        color: white;
+    .question-text {
+        color: #ffffff;
+        font-size: 24px;
+        font-weight: 600;
+        margin-top: 8px;
+    }
+
+    .success-card {
+        background: #0f2b20;
+        border: 1px solid #1f6b4a;
+        padding: 20px;
+        border-radius: 15px;
+    }
+
+    .danger-card {
+        background: #2b1111;
+        border: 1px solid #7f1d1d;
+        padding: 20px;
+        border-radius: 15px;
+    }
+
+    .metric-card {
+        background: #111827;
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid #263241;
+        text-align: center;
     }
 
     .footer {
         text-align: center;
-        color: #71808f;
+        color: #6b7280;
+        padding: 30px;
         font-size: 13px;
-        margin-top: 40px;
-        padding-bottom: 20px;
     }
 
     </style>
@@ -173,7 +144,7 @@ st.markdown(
 
 
 # ============================================================
-# STEP 13 - INITIALIZE SQLITE DATABASE
+# DATABASE INITIALIZATION
 # ============================================================
 
 if "database_initialized" not in st.session_state:
@@ -194,52 +165,157 @@ if "database_initialized" not in st.session_state:
 
 
 # ============================================================
-# SESSION STATE INITIALIZATION
+# SESSION STATE
 # ============================================================
 
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+DEFAULT_SESSION_VALUES = {
 
-if "role" not in st.session_state:
-    st.session_state.role = ""
+    "logged_in": False,
 
-if "patient" not in st.session_state:
-    st.session_state.patient = None
+    "role": None,
 
-if "case" not in st.session_state:
-    st.session_state.case = None
+    "patient": None,
 
-if "case_history" not in st.session_state:
-    st.session_state.case_history = []
+    "case": None,
 
-if "voice_complaint" not in st.session_state:
-    st.session_state.voice_complaint = ""
+    "case_history": [],
 
-if "selected_language" not in st.session_state:
-    st.session_state.selected_language = "English"
+    "voice_complaint": "",
 
-if "selected_patient" not in st.session_state:
-    st.session_state.selected_patient = None
+    "selected_language": "English",
 
-if "selected_patient_cases" not in st.session_state:
-    st.session_state.selected_patient_cases = []
+    "selected_patient": None,
+
+    "selected_patient_cases": [],
+
+    # Voice assistant
+    "voice_assistant_started": False,
+
+    "voice_assistant_questions": [],
+
+    "voice_assistant_answers": {},
+
+    "voice_assistant_index": 0,
+
+    "voice_assistant_completed": False,
+
+    "voice_assistant_dynamic_questions": [],
+
+    "voice_assistant_current_audio": None,
+
+    # OCR
+    "extracted_report_text": "",
+
+    # Current case
+    "current_symptoms": [],
+
+    "current_complaint": "",
+
+    "current_duration": "",
+
+    "current_severity": 5,
+
+    "current_history": "",
+
+    "current_medications": "",
+
+    "current_adaptive_answers": {}
+
+}
+
+
+for key, value in DEFAULT_SESSION_VALUES.items():
+
+    if key not in st.session_state:
+
+        st.session_state[key] = value
 
 
 # ============================================================
-# HEADER
+# HELPER FUNCTIONS
 # ============================================================
 
-st.markdown(
-    '<div class="main-title">🏥 Patient Case Taking System</div>',
-    unsafe_allow_html=True
-)
+def reset_voice_assistant():
 
-st.markdown(
-    '<div class="subtitle">'
-    'AI-Powered Adaptive Patient Case Management'
-    '</div>',
-    unsafe_allow_html=True
-)
+    st.session_state.voice_assistant_started = False
+
+    st.session_state.voice_assistant_questions = []
+
+    st.session_state.voice_assistant_answers = {}
+
+    st.session_state.voice_assistant_index = 0
+
+    st.session_state.voice_assistant_completed = False
+
+    st.session_state.voice_assistant_dynamic_questions = []
+
+    st.session_state.voice_assistant_current_audio = None
+
+
+def is_error_voice_result(text):
+
+    if not text:
+        return True
+
+    error_messages = [
+
+        "Sorry, I could not understand",
+
+        "Voice recognition service is unavailable",
+
+        "Voice processing error"
+
+    ]
+
+    for message in error_messages:
+
+        if text.startswith(message):
+
+            return True
+
+    return False
+
+
+def get_voice_answer(question):
+
+    return st.session_state.voice_assistant_answers.get(
+        question,
+        ""
+    )
+
+
+def clean_number(text, default=0):
+
+    try:
+
+        numbers = re.findall(
+            r"\d+\.?\d*",
+            str(text)
+        )
+
+        if numbers:
+
+            return float(numbers[0])
+
+    except Exception:
+        pass
+
+    return default
+
+
+def convert_severity(text):
+
+    value = clean_number(text, 5)
+
+    value = int(round(value))
+
+    if value < 1:
+        value = 1
+
+    if value > 10:
+        value = 10
+
+    return value
 
 
 # ============================================================
@@ -248,119 +324,208 @@ st.markdown(
 
 if not st.session_state.logged_in:
 
-    col1, col2, col3 = st.columns([1, 1.5, 1])
+    st.markdown(
+        '<div class="main-title">🏥 Patient Case Taking Software</div>',
+        unsafe_allow_html=True
+    )
 
-    with col2:
+    st.markdown(
+        '<div class="sub-title">'
+        'Smart multilingual patient case-taking and doctor support system'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
-        st.markdown(
-            '<div class="card">',
-            unsafe_allow_html=True
-        )
+    st.markdown(
+        '<div class="hospital-card">',
+        unsafe_allow_html=True
+    )
 
-        st.markdown(
-            '<div class="section-title">🔐 Secure Login</div>',
-            unsafe_allow_html=True
-        )
+    st.subheader("🔐 Secure Login")
 
-        role = st.selectbox(
-            "Login As",
-            [
-                "Patient",
-                "Doctor"
-            ]
-        )
+    role = st.radio(
+        "Select Role",
+        ["Patient", "Doctor"],
+        horizontal=True
+    )
 
-        username = st.text_input(
-            "Username",
-            placeholder="Enter your username"
-        )
+    username = st.text_input(
+        "Username"
+    )
 
-        password = st.text_input(
-            "Password",
-            type="password",
-            placeholder="Enter your password"
-        )
+    password = st.text_input(
+        "Password",
+        type="password"
+    )
 
-        if st.button("Login"):
+    if st.button(
+        "Login",
+        use_container_width=True
+    ):
 
-            if username.strip() and password.strip():
+        # ----------------------------------------------------
+        # DEMO LOGIN
+        # ----------------------------------------------------
+
+        if role == "Doctor":
+
+            if username and password:
 
                 st.session_state.logged_in = True
 
-                st.session_state.role = role
+                st.session_state.role = "Doctor"
+
+                st.success(
+                    "Doctor login successful!"
+                )
 
                 st.rerun()
 
             else:
 
                 st.warning(
-                    "⚠️ Please enter username and password."
+                    "Please enter username and password."
                 )
 
-        st.markdown(
-            "</div>",
-            unsafe_allow_html=True
-        )
+        else:
+
+            if username and password:
+
+                st.session_state.logged_in = True
+
+                st.session_state.role = "Patient"
+
+                st.success(
+                    "Patient login successful!"
+                )
+
+                st.rerun()
+
+            else:
+
+                st.warning(
+                    "Please enter username and password."
+                )
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        """
+        <div class="footer">
+        Patient Case Taking Software • Secure Healthcare Assistant
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.stop()
 
 
 # ============================================================
-# PATIENT PORTAL
+# SIDEBAR
 # ============================================================
 
-elif st.session_state.role == "Patient":
+st.sidebar.title("🏥 Patient Case System")
 
-    st.success(
-        "✅ Patient login successful!"
+st.sidebar.write(
+    f"Logged in as: **{st.session_state.role}**"
+)
+
+st.sidebar.markdown("---")
+
+
+# ============================================================
+# PATIENT SIDEBAR
+# ============================================================
+
+if st.session_state.role == "Patient":
+
+    menu = st.sidebar.radio(
+        "Navigation",
+        [
+            "Patient Registration",
+            "Case Taking",
+            "Health Timeline"
+        ]
     )
 
 
-    # ========================================================
-    # PATIENT REGISTRATION
-    # ========================================================
+# ============================================================
+# DOCTOR SIDEBAR
+# ============================================================
 
-    if st.session_state.patient is None:
+else:
 
-        st.markdown(
-            '<div class="card">',
-            unsafe_allow_html=True
-        )
+    menu = st.sidebar.radio(
+        "Navigation",
+        [
+            "Doctor Dashboard",
+            "Patient Records"
+        ]
+    )
 
-        st.markdown(
-            '<div class="section-title">'
-            '👤 Patient Registration'
-            '</div>',
-            unsafe_allow_html=True
-        )
 
-        st.write(
-            "Please enter your basic information."
-        )
+# ============================================================
+# LOGOUT
+# ============================================================
+
+if st.sidebar.button(
+    "🚪 Logout",
+    use_container_width=True
+):
+
+    st.session_state.logged_in = False
+
+    st.session_state.role = None
+
+    st.session_state.patient = None
+
+    reset_voice_assistant()
+
+    st.rerun()
+
+
+# ============================================================
+# PATIENT REGISTRATION
+# ============================================================
+
+if (
+    st.session_state.role == "Patient"
+    and menu == "Patient Registration"
+):
+
+    st.markdown(
+        '<div class="main-title">👤 Patient Registration</div>',
+        unsafe_allow_html=True
+    )
+
+    st.write(
+        "Enter your basic information before starting the case."
+    )
+
+    with st.form("patient_registration_form"):
 
         col1, col2 = st.columns(2)
 
-
-        # ----------------------------------------------------
-        # LEFT COLUMN
-        # ----------------------------------------------------
-
         with col1:
 
-            name = st.text_input(
-                "Full Name",
-                placeholder="Enter your full name"
+            full_name = st.text_input(
+                "Full Name"
             )
 
             age = st.number_input(
                 "Age",
                 min_value=1,
                 max_value=120,
-                value=18
+                value=20
             )
 
             gender = st.selectbox(
                 "Gender",
                 [
-                    "Select",
                     "Male",
                     "Female",
                     "Other"
@@ -368,23 +533,16 @@ elif st.session_state.role == "Patient":
             )
 
             phone = st.text_input(
-                "Phone Number",
-                placeholder="Enter phone number"
+                "Phone Number"
             )
-
-
-        # ----------------------------------------------------
-        # RIGHT COLUMN
-        # ----------------------------------------------------
 
         with col2:
 
             email = st.text_input(
-                "Email",
-                placeholder="Enter email address"
+                "Email"
             )
 
-            language = st.selectbox(
+            preferred_language = st.selectbox(
                 "Preferred Language",
                 [
                     "English",
@@ -394,14 +552,13 @@ elif st.session_state.role == "Patient":
             )
 
             emergency_contact = st.text_input(
-                "Emergency Contact",
-                placeholder="Enter emergency contact"
+                "Emergency Contact"
             )
 
             blood_group = st.selectbox(
                 "Blood Group",
                 [
-                    "Select",
+                    "Unknown",
                     "A+",
                     "A-",
                     "B+",
@@ -413,988 +570,1017 @@ elif st.session_state.role == "Patient":
                 ]
             )
 
+        submitted = st.form_submit_button(
+            "💾 Register Patient",
+            use_container_width=True
+        )
 
-        # ----------------------------------------------------
-        # REGISTER PATIENT
-        # ----------------------------------------------------
+    if submitted:
 
-        if st.button(
-            "Register Patient"
-        ):
+        if not full_name:
 
-            if (
-                name.strip()
-                and phone.strip()
-                and gender != "Select"
-            ):
+            st.warning(
+                "Please enter patient name."
+            )
 
-                patient_data = {
+        else:
 
-                    "name":
-                        name.strip(),
+            patient_data = {
 
-                    "age":
-                        int(age),
+                "name": full_name,
 
-                    "gender":
-                        gender,
+                "full_name": full_name,
 
-                    "phone":
-                        phone.strip(),
+                "age": age,
 
-                    "email":
-                        email.strip(),
+                "gender": gender,
 
-                    "language":
-                        language,
+                "phone": phone,
 
-                    "emergency_contact":
-                        emergency_contact.strip(),
+                "email": email,
 
-                    "blood_group":
-                        blood_group
-                }
+                "preferred_language": preferred_language,
 
+                "language": preferred_language,
 
-                # ============================================
-                # STEP 13 - SAVE PATIENT TO SQLITE
-                # ============================================
+                "emergency_contact": emergency_contact,
+
+                "blood_group": blood_group,
+
+                "created_at": datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            }
+
+            try:
+
+                patient_id = save_patient(
+                    patient_data
+                )
+
+                patient_data["id"] = patient_id
+
+                st.session_state.patient = patient_data
+
+                st.session_state.selected_language = (
+                    preferred_language
+                )
 
                 try:
 
-                    patient_id = save_patient(
-                        patient_data
-                    )
-
-                    patient_data["id"] = patient_id
-
-                    st.session_state.patient = (
-                        patient_data
-                    )
-
-                    st.session_state.selected_language = (
-                        language
-                    )
-
-
-                    # Load existing patient history
-
                     st.session_state.case_history = (
-                        get_patient_cases(
-                            patient_id
-                        )
+                        get_patient_cases(patient_id)
                     )
 
+                except Exception:
 
-                    st.success(
-                        "✅ Patient registered successfully!"
-                    )
+                    st.session_state.case_history = []
 
-                    st.info(
-                        f"🆔 Patient ID: {patient_id}"
-                    )
-
-                    st.rerun()
-
-                except Exception as e:
-
-                    st.error(
-                        f"❌ Database error: {str(e)}"
-                    )
-
-            else:
-
-                st.warning(
-                    "⚠️ Please enter Name, Phone Number "
-                    "and Gender."
+                st.success(
+                    "✅ Patient registered successfully!"
                 )
 
-        st.markdown(
-            "</div>",
-            unsafe_allow_html=True
-        )
+                st.info(
+                    f"Patient ID: {patient_id}"
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to save patient: {e}"
+                )
+
+
+# ============================================================
+# PATIENT CASE TAKING
+# ============================================================
+
+elif (
+    st.session_state.role == "Patient"
+    and menu == "Case Taking"
+):
+
+    st.markdown(
+        '<div class="main-title">🩺 Patient Case Taking</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div class="sub-title">'
+        'Answer the questions using text or the AI voice assistant.'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
 
     # ========================================================
-    # CASE TAKING
+    # PATIENT CHECK
     # ========================================================
 
-    else:
+    if not st.session_state.patient:
 
-        patient = st.session_state.patient
-
-        st.markdown(
-            '<div class="card">',
-            unsafe_allow_html=True
+        st.warning(
+            "Please register as a patient first."
         )
 
-        st.markdown(
-            '<div class="section-title">'
-            '🩺 New Patient Case'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        st.info(
-            f"Patient ID: {patient.get('id', 'N/A')} | "
-            f"Patient: {patient['name']} | "
-            f"Age: {patient['age']} | "
-            f"Gender: {patient['gender']}"
-        )
+        st.stop()
 
 
-        # ====================================================
-        # STEP 1 - CHIEF COMPLAINT
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '1. Chief Complaint'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        st.write(
-            "You can type your complaint or record it "
-            "using your microphone."
-        )
-
-        complaint_text = st.text_area(
-            "Type your health problem",
-            placeholder="Example: I have stomach pain...",
-            key="complaint_text"
-        )
+    patient = st.session_state.patient
 
 
-        # ====================================================
-        # STEP 7 - MULTILINGUAL VOICE INPUT
-        # ====================================================
+    # ========================================================
+    # LANGUAGE
+    # ========================================================
 
-        st.markdown(
-            '<div class="step-title">'
-            '2. 🎤 Multilingual Voice Input'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        st.write(
-            "Select your language and record your complaint."
-        )
-
-        default_language = patient.get(
-            "language",
-            "English"
-        )
-
-        language_options = [
+    selected_language = st.selectbox(
+        "🌐 Select Conversation Language",
+        [
             "English",
             "Tamil",
             "Hindi"
-        ]
+        ],
+        index=[
+            "English",
+            "Tamil",
+            "Hindi"
+        ].index(
+            st.session_state.selected_language
+        )
+    )
 
-        if default_language in language_options:
+    st.session_state.selected_language = selected_language
 
-            default_index = language_options.index(
-                default_language
+
+    # ========================================================
+    # AI VOICE ASSISTANT
+    # ========================================================
+
+    st.markdown("---")
+
+    st.subheader(
+        "🎙️ AI Voice Case Assistant"
+    )
+
+    st.write(
+        "The AI assistant asks one question at a time. "
+        "Listen to the question, record your answer, "
+        "and then continue to the next question."
+    )
+
+
+    # ========================================================
+    # START VOICE ASSISTANT
+    # ========================================================
+
+    if not st.session_state.voice_assistant_started:
+
+        if st.button(
+            "🎙️ Start AI Voice Assistant",
+            use_container_width=True
+        ):
+
+            reset_voice_assistant()
+
+            st.session_state.voice_assistant_started = True
+
+            st.session_state.voice_assistant_completed = False
+
+            # Initial questions
+            initial_questions = [
+
+                "What is your main health problem or complaint?",
+
+                "How long have you been experiencing this problem?",
+
+                "On a scale from 1 to 10, how severe is the problem?",
+
+                "Do you have any previous medical history?",
+
+                "Are you currently taking any medicines?"
+            ]
+
+            st.session_state.voice_assistant_questions = (
+                initial_questions
             )
 
-        else:
+            st.session_state.voice_assistant_index = 0
 
-            default_index = 0
+            st.rerun()
 
-        selected_language = st.selectbox(
-            "Select Voice Language",
-            language_options,
-            index=default_index,
-            key="voice_language"
+
+    # ========================================================
+    # ACTIVE VOICE ASSISTANT
+    # ========================================================
+
+    if st.session_state.voice_assistant_started:
+
+        questions = (
+            st.session_state.voice_assistant_questions
         )
 
-        st.session_state.selected_language = (
-            selected_language
-        )
-
-
-        # ----------------------------------------------------
-        # LANGUAGE INSTRUCTION
-        # ----------------------------------------------------
-
-        if selected_language == "English":
-
-            st.info(
-                "🎤 Please speak in English."
-            )
-
-        elif selected_language == "Tamil":
-
-            st.info(
-                "🎤 தமிழில் உங்கள் உடல்நலப் பிரச்சனையைப் பேசவும்."
-            )
-
-        elif selected_language == "Hindi":
-
-            st.info(
-                "🎤 कृपया हिंदी में अपनी स्वास्थ्य समस्या बताएं।"
-            )
-
-
-        # ----------------------------------------------------
-        # AUDIO INPUT
-        # ----------------------------------------------------
-
-        audio_value = st.audio_input(
-            "Record your complaint",
-            key="patient_voice"
-        )
-
-        if audio_value is not None:
-
-            audio_bytes = audio_value.getvalue()
-
-            with st.spinner(
-                f"Converting {selected_language} voice to text..."
-            ):
-
-                try:
-
-                    voice_text = convert_voice_to_text(
-                        audio_bytes,
-                        language=selected_language
-                    )
-
-                except TypeError:
-
-                    try:
-
-                        voice_text = convert_voice_to_text(
-                            audio_bytes
-                        )
-
-                    except Exception as e:
-
-                        voice_text = (
-                            f"Voice processing error: {str(e)}"
-                        )
-
-                except Exception as e:
-
-                    voice_text = (
-                        f"Voice processing error: {str(e)}"
-                    )
-
-            if voice_text:
-
-                invalid_messages = [
-                    "Sorry",
-                    "Voice processing",
-                    "Voice recognition"
-                ]
-
-                is_error = any(
-                    voice_text.startswith(message)
-                    for message in invalid_messages
-                )
-
-                if not is_error:
-
-                    st.session_state.voice_complaint = (
-                        voice_text
-                    )
-
-                    st.success(
-                        "✅ Voice converted successfully!"
-                    )
-
-                    st.write(
-                        f"**Detected Language:** "
-                        f"{selected_language}"
-                    )
-
-                    st.write(
-                        f"**You said:** {voice_text}"
-                    )
-
-                else:
-
-                    st.warning(
-                        voice_text
-                    )
-
-
-        # ====================================================
-        # FINAL COMPLAINT
-        # ====================================================
-
-        if st.session_state.voice_complaint:
-
-            complaint = (
-                st.session_state.voice_complaint
-            )
-
-            st.info(
-                f"🎤 Using voice complaint: {complaint}"
-            )
-
-            if st.button(
-                "📝 Use Typed Complaint Instead"
-            ):
-
-                st.session_state.voice_complaint = ""
-
-                st.rerun()
-
-        else:
-
-            complaint = complaint_text.strip()
-
-
-        # ====================================================
-        # STEP 8 - NLP SYMPTOM EXTRACTION
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '3. 🤖 NLP Symptom Extraction'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        detected_symptoms = []
-
-        if complaint:
-
-            try:
-
-                detected_symptoms = extract_symptoms(
-                    complaint
-                )
-
-                if detected_symptoms:
-
-                    st.success(
-                        "✅ Symptoms detected automatically!"
-                    )
-
-                    st.write(
-                        "**NLP Detected Symptoms:**"
-                    )
-
-                    st.write(
-                        ", ".join(
-                            detected_symptoms
-                        )
-                    )
-
-                else:
-
-                    st.info(
-                        "No symptoms detected automatically. "
-                        "You can select them manually."
-                    )
-
-            except Exception as e:
-
-                st.warning(
-                    f"NLP extraction could not be completed: {e}"
-                )
-
-        else:
-
-            st.info(
-                "Enter a complaint to automatically "
-                "extract symptoms."
-            )
-
-
-        # ====================================================
-        # MANUAL SYMPTOM SELECTION
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '4. Symptoms'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        symptom_options = [
-
-            "Fever",
-            "Headache",
-            "Cough",
-            "Cold",
-            "Stomach Pain",
-            "Chest Pain",
-            "Vomiting",
-            "Nausea",
-            "Dizziness",
-            "Body Pain",
-            "Breathing Difficulty",
-            "Fatigue"
-        ]
-
-        manual_symptoms = st.multiselect(
-            "Select additional symptoms",
-            symptom_options,
-            key="manual_symptoms"
+        current_index = (
+            st.session_state.voice_assistant_index
         )
 
 
         # ====================================================
-        # COMBINE SYMPTOMS
+        # FINISHED
         # ====================================================
 
-        symptoms = list(
-            dict.fromkeys(
-                detected_symptoms
-                + manual_symptoms
-            )
-        )
+        if current_index >= len(questions):
 
-        if symptoms:
+            st.session_state.voice_assistant_completed = True
 
-            st.write(
-                f"**Final Symptoms:** "
-                f"{', '.join(symptoms)}"
-            )
-
-
-        # ====================================================
-        # DURATION
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '5. Duration'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        duration = st.text_input(
-            "How long have you had this problem?",
-            placeholder="Example: 3 days",
-            key="duration"
-        )
-
-
-        # ====================================================
-        # SEVERITY
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '6. Severity'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        severity = st.slider(
-            "Rate your problem severity",
-            min_value=1,
-            max_value=10,
-            value=5,
-            key="severity"
-        )
-
-        st.write(
-            f"Severity Level: **{severity}/10**"
-        )
-
-
-        # ====================================================
-        # PREVIOUS MEDICAL HISTORY
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '7. Previous Medical History'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        previous_history = st.text_area(
-            "Mention previous diseases, surgeries or conditions",
-            placeholder=(
-                "Example: Diabetes, asthma, previous surgery..."
-            ),
-            key="previous_history"
-        )
-
-
-        # ====================================================
-        # CURRENT MEDICATIONS
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '8. Current Medications'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        medications = st.text_area(
-            "Enter your current medications",
-            placeholder=(
-                "Example: Paracetamol, insulin..."
-            ),
-            key="medications"
-        )
-
-
-        # ====================================================
-        # STEP 5 - ADAPTIVE AI QUESTIONS
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '9. 🤖 Adaptive AI Questions'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        answers = {}
-
-        if complaint:
-
-            try:
-
-                adaptive_questions = (
-                    get_follow_up_questions(
-                        complaint,
-                        symptoms
-                    )
-                )
-
-            except Exception as e:
-
-                adaptive_questions = []
-
-                st.warning(
-                    f"Adaptive question generation error: {e}"
-                )
-
-
-            if adaptive_questions:
-
-                st.write(
-                    "Based on the patient's complaint and "
-                    "symptoms, the system generated "
-                    "the following follow-up questions:"
-                )
-
-                for i, question in enumerate(
-                    adaptive_questions
-                ):
-
-                    answers[question] = st.text_input(
-                        question,
-                        key=f"adaptive_{i}"
-                    )
-
-            else:
-
-                st.info(
-                    "No additional adaptive questions "
-                    "were generated."
-                )
-
-        else:
-
-            st.info(
-                "Enter the chief complaint to generate "
-                "adaptive questions."
-            )
-
-
-        # ====================================================
-        # STEP 9 - MEDICAL REPORT UPLOAD + OCR
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '10. 📄 Medical Report Upload + OCR'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        st.write(
-            "Upload a previous medical report image. "
-            "The system will extract readable text from it."
-        )
-
-        uploaded_report = st.file_uploader(
-            "Upload Medical Report",
-            type=[
-                "png",
-                "jpg",
-                "jpeg"
-            ],
-            key="medical_report"
-        )
-
-        extracted_report_text = ""
-
-        if uploaded_report is not None:
+            st.session_state.voice_assistant_started = False
 
             st.success(
-                "✅ Medical report uploaded successfully!"
+                "🎉 Voice case-taking completed successfully!"
             )
 
-            st.image(
-                uploaded_report,
-                caption="Uploaded Medical Report",
-                use_container_width=True
+            st.balloons()
+
+
+        else:
+
+            current_question = questions[current_index]
+
+
+            # =================================================
+            # PROGRESS
+            # =================================================
+
+            progress = (
+                (current_index + 1)
+                / len(questions)
             )
 
-            report_bytes = (
-                uploaded_report.getvalue()
+            st.progress(
+                progress
             )
 
-            with st.spinner(
-                "Extracting text from medical report..."
-            ):
-
-                try:
-
-                    extracted_report_text = (
-                        extract_text_from_image(
-                            report_bytes
-                        )
-                    )
-
-                except Exception as e:
-
-                    extracted_report_text = (
-                        f"OCR processing error: {str(e)}"
-                    )
-
-
-            if extracted_report_text:
-
-                if extracted_report_text.startswith(
-                    "OCR processing error"
-                ):
-
-                    st.error(
-                        extracted_report_text
-                    )
-
-                else:
-
-                    st.success(
-                        "✅ Text extracted successfully!"
-                    )
-
-                    st.text_area(
-                        "Extracted Medical Report Text",
-                        value=extracted_report_text,
-                        height=250,
-                        key="ocr_result"
-                    )
-
-            else:
-
-                st.warning(
-                    "No readable text was found in "
-                    "the uploaded report."
-                )
-
-
-        # ====================================================
-        # STEP 10 - RED-FLAG ALERT SYSTEM
-        # ====================================================
-
-        st.markdown(
-            '<div class="step-title">'
-            '11. 🚨 Red-Flag Alert System'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        st.write(
-            "The system checks the patient's complaint, "
-            "symptoms, adaptive answers and uploaded "
-            "report text for predefined warning indicators."
-        )
-
-        try:
-
-            red_flags = detect_red_flags(
-
-                complaint=complaint,
-
-                symptoms=symptoms,
-
-                adaptive_answers=answers,
-
-                ocr_text=extracted_report_text
-            )
-
-        except Exception as e:
-
-            red_flags = []
-
-            st.warning(
-                f"Red-flag detection error: {e}"
+            st.caption(
+                f"Question {current_index + 1} "
+                f"of {len(questions)}"
             )
 
 
-        if red_flags:
+            # =================================================
+            # QUESTION CARD
+            # =================================================
 
             st.markdown(
-                """
-                <div class="danger-box">
-                <h3>🚨 Potential Red-Flag Indicators Detected</h3>
-                <p>
-                Please review these findings carefully
-                and seek appropriate clinical assessment.
-                </p>
+                f"""
+                <div class="question-card">
+
+                    <div class="question-number">
+                    QUESTION {current_index + 1}
+                    </div>
+
+                    <div class="question-text">
+                    🤖 {current_question}
+                    </div>
+
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            st.write(
-                "### Detected Warning Indicators"
-            )
 
-            for flag in red_flags:
+            # =================================================
+            # TEXT TO SPEECH
+            # =================================================
 
-                st.error(
-                    f"⚠️ {flag}"
+            with st.spinner(
+                "Preparing question audio..."
+            ):
+
+                question_audio = (
+                    generate_question_audio(
+                        current_question,
+                        selected_language
+                    )
                 )
 
-            st.info(
-                "⚠️ This is a decision-support alert only. "
-                "It does not diagnose a medical condition."
-            )
 
-        else:
+            if question_audio:
 
-            st.success(
-                "✅ No predefined red-flag indicators detected."
-            )
-
-            st.caption(
-                "Absence of an alert does not rule out "
-                "a medical emergency."
-            )
-
-
-        # ====================================================
-        # SAVE PATIENT CASE
-        # ====================================================
-
-        st.markdown("---")
-
-        st.markdown(
-            '<div class="section-title">'
-            '💾 Save Patient Case'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        if st.button(
-            "💾 Save Complete Patient Case"
-        ):
-
-            if not complaint:
-
-                st.warning(
-                    "⚠️ Please enter the chief complaint."
+                st.audio(
+                    question_audio,
+                    format="audio/mp3"
                 )
 
-            elif not duration.strip():
-
-                st.warning(
-                    "⚠️ Please enter the duration."
+                st.caption(
+                    "🔊 Listen to the AI question."
                 )
 
             else:
 
-                # =============================================
-                # CREATE VISIT DATE AND TIME
-                # =============================================
-
-                visit_datetime = datetime.now()
-
-                visit_date = visit_datetime.strftime(
-                    "%d-%m-%Y"
-                )
-
-                visit_time = visit_datetime.strftime(
-                    "%I:%M %p"
+                st.warning(
+                    "Question audio could not be generated. "
+                    "You can still read the question and answer."
                 )
 
 
-                # =============================================
-                # GET EXISTING CASES FROM DATABASE
-                # =============================================
+            # =================================================
+            # MICROPHONE
+            # =================================================
+
+            audio_answer = st.audio_input(
+                "🎤 Record your answer",
+                key=f"voice_answer_{current_index}"
+            )
+
+
+            # =================================================
+            # SUBMIT
+            # =================================================
+
+            if st.button(
+                "✅ Submit Answer & Continue",
+                key=f"submit_answer_{current_index}",
+                use_container_width=True
+            ):
+
+                if audio_answer is None:
+
+                    st.warning(
+                        "🎤 Please record your answer first."
+                    )
+
+                else:
+
+                    with st.spinner(
+                        "Converting your answer to text..."
+                    ):
+
+                        answer_text = (
+                            convert_voice_to_text(
+                                audio_answer,
+                                language=selected_language
+                            )
+                        )
+
+
+                    if is_error_voice_result(
+                        answer_text
+                    ):
+
+                        st.error(
+                            "❌ Your voice could not be "
+                            "understood. Please record again."
+                        )
+
+                        if answer_text:
+
+                            st.caption(
+                                answer_text
+                            )
+
+                    else:
+
+                        st.session_state.voice_assistant_answers[
+                            current_question
+                        ] = answer_text
+
+
+                        st.success(
+                            "Answer recorded successfully."
+                        )
+
+                        st.info(
+                            f"📝 Your answer: {answer_text}"
+                        )
+
+
+                        # =====================================
+                        # ADAPTIVE QUESTION GENERATION
+                        # =====================================
+
+                        if current_index == 0:
+
+                            try:
+
+                                detected_symptoms = (
+                                    extract_symptoms(
+                                        answer_text
+                                    )
+                                )
+
+                                if isinstance(
+                                    detected_symptoms,
+                                    str
+                                ):
+
+                                    detected_symptoms = [
+                                        detected_symptoms
+                                    ]
+
+                                st.session_state.current_symptoms = (
+                                    detected_symptoms
+                                )
+
+                            except Exception:
+
+                                st.session_state.current_symptoms = []
+
+
+                            try:
+
+                                dynamic_questions = (
+                                    get_follow_up_questions(
+                                        answer_text,
+                                        st.session_state.current_symptoms
+                                    )
+                                )
+
+                                if dynamic_questions:
+
+                                    for q in dynamic_questions:
+
+                                        if (
+                                            q not in
+                                            st.session_state.voice_assistant_questions
+                                        ):
+
+                                            st.session_state.voice_assistant_questions.insert(
+                                                current_index + 1,
+                                                q
+                                            )
+
+                            except Exception:
+
+                                pass
+
+
+                        # =====================================
+                        # MOVE TO NEXT QUESTION
+                        # =====================================
+
+                        st.session_state.voice_assistant_index += 1
+
+                        st.rerun()
+
+
+    # ========================================================
+    # VOICE ANSWERS COMPLETED
+    # ========================================================
+
+    if st.session_state.voice_assistant_completed:
+
+        answers = (
+            st.session_state.voice_assistant_answers
+        )
+
+        if answers:
+
+            st.markdown("---")
+
+            st.subheader(
+                "📋 Voice Interview Answers"
+            )
+
+            for number, (question, answer) in enumerate(
+                answers.items(),
+                start=1
+            ):
+
+                st.markdown(
+                    f"**{number}. {question}**"
+                )
+
+                st.info(
+                    answer
+                )
+
+
+    # ========================================================
+    # NORMAL MANUAL CASE FORM
+    # ========================================================
+
+    st.markdown("---")
+
+    st.subheader(
+        "📝 Manual Case Details"
+    )
+
+    voice_answers = (
+        st.session_state.voice_assistant_answers
+    )
+
+
+    # ========================================================
+    # GET VOICE VALUES
+    # ========================================================
+
+    voice_questions = list(
+        voice_answers.keys()
+    )
+
+
+    voice_complaint = ""
+
+    voice_duration = ""
+
+    voice_severity = 5
+
+    voice_history = ""
+
+    voice_medications = ""
+
+
+    if len(voice_questions) >= 1:
+
+        voice_complaint = voice_answers.get(
+            voice_questions[0],
+            ""
+        )
+
+
+    if len(voice_questions) >= 2:
+
+        voice_duration = voice_answers.get(
+            voice_questions[1],
+            ""
+        )
+
+
+    if len(voice_questions) >= 3:
+
+        voice_severity = convert_severity(
+            voice_answers.get(
+                voice_questions[2],
+                "5"
+            )
+        )
+
+
+    if len(voice_questions) >= 4:
+
+        voice_history = voice_answers.get(
+            voice_questions[3],
+            ""
+        )
+
+
+    if len(voice_questions) >= 5:
+
+        voice_medications = voice_answers.get(
+            voice_questions[4],
+            ""
+        )
+
+
+    # ========================================================
+    # COMPLAINT
+    # ========================================================
+
+    complaint = st.text_area(
+        "Chief Complaint",
+        value=voice_complaint,
+        height=100
+    )
+
+
+    # ========================================================
+    # MANUAL VOICE COMPLAINT
+    # ========================================================
+
+    st.subheader(
+        "🎤 Quick Voice Complaint"
+    )
+
+    quick_voice = st.audio_input(
+        "Record your complaint",
+        key="quick_voice_complaint"
+    )
+
+    if quick_voice:
+
+        if st.button(
+            "Convert Complaint to Text",
+            key="convert_quick_voice"
+        ):
+
+            with st.spinner(
+                "Converting voice..."
+            ):
+
+                converted = convert_voice_to_text(
+                    quick_voice,
+                    language=selected_language
+                )
+
+            if not is_error_voice_result(
+                converted
+            ):
+
+                st.session_state.voice_complaint = (
+                    converted
+                )
+
+                st.success(
+                    converted
+                )
+
+            else:
+
+                st.error(
+                    converted
+                )
+
+
+    if st.session_state.voice_complaint:
+
+        complaint = st.session_state.voice_complaint
+
+        st.info(
+            f"Voice complaint: {complaint}"
+        )
+
+
+    # ========================================================
+    # SYMPTOM EXTRACTION
+    # ========================================================
+
+    st.subheader(
+        "🔍 Symptoms"
+    )
+
+    detected_symptoms = []
+
+    if complaint:
+
+        try:
+
+            detected_symptoms = extract_symptoms(
+                complaint
+            )
+
+            if isinstance(
+                detected_symptoms,
+                str
+            ):
+
+                detected_symptoms = [
+                    detected_symptoms
+                ]
+
+        except Exception:
+
+            detected_symptoms = []
+
+
+    if not isinstance(
+        detected_symptoms,
+        list
+    ):
+
+        detected_symptoms = []
+
+
+    symptom_options = [
+
+        "Fever",
+        "Headache",
+        "Cough",
+        "Cold",
+        "Stomach Pain",
+        "Chest Pain",
+        "Vomiting",
+        "Nausea",
+        "Dizziness",
+        "Body Pain",
+        "Breathing Difficulty",
+        "Fatigue"
+
+    ]
+
+
+    selected_symptoms = st.multiselect(
+        "Select symptoms",
+        symptom_options,
+        default=[
+            s for s in detected_symptoms
+            if s in symptom_options
+        ]
+    )
+
+
+    # ========================================================
+    # DURATION
+    # ========================================================
+
+    duration_default = voice_duration
+
+    if not duration_default and complaint:
+
+        try:
+
+            duration_default = extract_duration(
+                complaint
+            )
+
+        except Exception:
+
+            duration_default = ""
+
+
+    duration = st.text_input(
+        "Duration",
+        value=str(duration_default)
+    )
+
+
+    # ========================================================
+    # SEVERITY
+    # ========================================================
+
+    severity = st.slider(
+        "Severity",
+        min_value=1,
+        max_value=10,
+        value=voice_severity
+    )
+
+
+    # ========================================================
+    # MEDICAL HISTORY
+    # ========================================================
+
+    previous_history = st.text_area(
+        "Previous Medical History",
+        value=voice_history,
+        height=100
+    )
+
+
+    # ========================================================
+    # MEDICATIONS
+    # ========================================================
+
+    medications = st.text_area(
+        "Current Medications",
+        value=voice_medications,
+        height=100
+    )
+
+
+    # ========================================================
+    # ADAPTIVE FOLLOW-UP QUESTIONS
+    # ========================================================
+
+    st.subheader(
+        "🤖 Adaptive Follow-up Questions"
+    )
+
+    adaptive_answers = {}
+
+
+    try:
+
+        adaptive_questions = (
+            get_follow_up_questions(
+                complaint,
+                selected_symptoms
+            )
+        )
+
+    except Exception:
+
+        adaptive_questions = []
+
+
+    if adaptive_questions:
+
+        for i, question in enumerate(
+            adaptive_questions
+        ):
+
+            adaptive_answers[question] = st.text_input(
+                question,
+                key=f"adaptive_manual_{i}"
+            )
+
+    else:
+
+        st.info(
+            "No additional follow-up questions required."
+        )
+
+
+    # ========================================================
+    # MEDICAL REPORT OCR
+    # ========================================================
+
+    st.subheader(
+        "📄 Medical Report OCR"
+    )
+
+    uploaded_report = st.file_uploader(
+        "Upload medical report image",
+        type=[
+            "png",
+            "jpg",
+            "jpeg"
+        ]
+    )
+
+
+    extracted_report_text = (
+        st.session_state.extracted_report_text
+    )
+
+
+    if uploaded_report:
+
+        try:
+
+            extracted_report_text = (
+                extract_text_from_image(
+                    uploaded_report
+                )
+            )
+
+            st.session_state.extracted_report_text = (
+                extracted_report_text
+            )
+
+            st.success(
+                "Medical report text extracted successfully."
+            )
+
+            st.text_area(
+                "Extracted Report Text",
+                extracted_report_text,
+                height=200
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"OCR processing error: {e}"
+            )
+
+
+    # ========================================================
+    # SAVE CASE
+    # ========================================================
+
+    st.markdown("---")
+
+    if st.button(
+        "💾 Save Complete Patient Case",
+        use_container_width=True
+    ):
+
+        if not complaint:
+
+            st.warning(
+                "Please enter or record the chief complaint."
+            )
+
+        else:
+
+            try:
+
+                patient = st.session_state.patient
 
                 try:
 
-                    existing_cases = (
-                        get_patient_cases(
-                            patient["id"]
-                        )
+                    previous_cases = get_patient_cases(
+                        patient["id"]
                     )
 
                     visit_number = (
-                        len(existing_cases) + 1
+                        len(previous_cases) + 1
                     )
 
                 except Exception:
 
-                    visit_number = (
-                        len(
-                            st.session_state.case_history
-                        ) + 1
-                    )
+                    visit_number = 1
 
 
-                # =============================================
-                # CREATE COMPLETE CASE RECORD
-                # =============================================
+                # =========================================
+                # RED FLAG DETECTION
+                # =========================================
+
+                red_flags = detect_red_flags(
+
+                    complaint=complaint,
+
+                    symptoms=selected_symptoms,
+
+                    adaptive_answers=adaptive_answers,
+
+                    ocr_text=extracted_report_text
+                )
+
+
+                # =========================================
+                # CASE RECORD
+                # =========================================
+
+                now = datetime.now()
+
 
                 case_record = {
 
-                    "visit_number":
-                        visit_number,
+                    "visit_number": visit_number,
 
-                    "visit_date":
-                        visit_date,
+                    "visit_date": now.strftime(
+                        "%Y-%m-%d"
+                    ),
 
-                    "visit_time":
-                        visit_time,
+                    "visit_time": now.strftime(
+                        "%H:%M:%S"
+                    ),
 
-                    "visit_datetime":
-                        visit_datetime.strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        ),
+                    "visit_datetime": now.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    ),
 
-                    "complaint":
-                        complaint,
+                    "complaint": complaint,
 
-                    "symptoms":
-                        symptoms,
+                    "symptoms": selected_symptoms,
 
-                    "duration":
-                        duration.strip(),
+                    "duration": duration,
 
-                    "severity":
-                        severity,
+                    "severity": severity,
 
-                    "previous_history":
-                        previous_history.strip(),
+                    "previous_history": previous_history,
 
-                    "medications":
-                        medications.strip(),
+                    "medications": medications,
 
-                    "adaptive_answers":
-                        answers,
+                    "adaptive_answers": adaptive_answers,
 
-                    "language":
-                        selected_language,
+                    "language": selected_language,
 
-                    "ocr_text":
-                        extracted_report_text,
+                    "ocr_text": extracted_report_text,
 
-                    "red_flags":
-                        red_flags
+                    "red_flags": red_flags
                 }
 
 
-                # =============================================
-                # STEP 12 - AI CASE SUMMARY
-                # =============================================
+                # =========================================
+                # AI CASE SUMMARY
+                # =========================================
 
                 try:
 
-                    ai_summary_data = (
-                        generate_case_summary(
-                            case_record
-                        )
-                    )
-
-                except Exception as e:
-
-                    ai_summary_data = {
-
-                        "Chief Complaint":
-                            complaint,
-
-                        "Symptoms":
-                            ", ".join(symptoms)
-                            if symptoms
-                            else "None",
-
-                        "Duration":
-                            duration.strip(),
-
-                        "Severity":
-                            f"{severity}/10",
-
-                        "Previous Medical History":
-                            previous_history.strip()
-                            if previous_history.strip()
-                            else "None",
-
-                        "Current Medications":
-                            medications.strip()
-                            if medications.strip()
-                            else "None",
-
-                        "Follow-up Information":
-                            [
-                                "Summary generation error"
-                            ],
-
-                        "OCR Report Available":
-                            "Yes"
-                            if extracted_report_text
-                            else "No",
-
-                        "Red Flags":
-                            red_flags
-                            if red_flags
-                            else [
-                                "None detected"
-                            ],
-
-                        "Language":
-                            selected_language,
-
-                        "Summary":
-                            (
-                                "AI summary generation error: "
-                                f"{str(e)}"
-                            )
-                    }
-
-
-                # =============================================
-                # STORE AI SUMMARY
-                # =============================================
-
-                case_record[
-                    "ai_summary"
-                ] = ai_summary_data
-
-
-                # =============================================
-                # STEP 13 - SAVE CASE TO SQLITE
-                # =============================================
-
-                try:
-
-                    case_id = save_case(
-                        patient["id"],
+                    ai_summary = generate_case_summary(
                         case_record
                     )
 
-                    case_record["id"] = case_id
+                except Exception:
+
+                    ai_summary = (
+                        f"Patient reported {complaint}. "
+                        f"Symptoms: {', '.join(selected_symptoms)}. "
+                        f"Duration: {duration}. "
+                        f"Severity: {severity}/10."
+                    )
 
 
-                    # Reload history from SQLite
+                case_record["ai_summary"] = ai_summary
+
+                case_record["summary"] = ai_summary
+
+
+                # =========================================
+                # DATABASE SAVE
+                # =========================================
+
+                save_case(
+                    patient["id"],
+                    case_record
+                )
+
+
+                # =========================================
+                # SESSION UPDATE
+                # =========================================
+
+                st.session_state.case = case_record
+
+                st.session_state.current_complaint = complaint
+
+                st.session_state.current_symptoms = selected_symptoms
+
+                st.session_state.current_duration = duration
+
+                st.session_state.current_severity = severity
+
+                st.session_state.current_history = previous_history
+
+                st.session_state.current_medications = medications
+
+                st.session_state.current_adaptive_answers = (
+                    adaptive_answers
+                )
+
+
+                try:
 
                     st.session_state.case_history = (
                         get_patient_cases(
@@ -1402,1064 +1588,541 @@ elif st.session_state.role == "Patient":
                         )
                     )
 
-                    st.session_state.case = (
-                        case_record
-                    )
+                except Exception:
+
+                    pass
 
 
-                    st.success(
-                        "✅ Complete patient case saved successfully!"
-                    )
-
-                    st.success(
-                        f"🕒 Visit {visit_number} "
-                        "added to Patient Health Timeline."
-                    )
-
-                    st.info(
-                        f"💾 SQLite Database Case ID: {case_id}"
-                    )
-
-                except Exception as e:
-
-                    st.error(
-                        f"❌ SQLite database save error: {str(e)}"
-                    )
-
-                    st.stop()
-
-
-                # =============================================
-                # CASE SUMMARY
-                # =============================================
-
-                st.markdown(
-                    "### 📋 Saved Case Summary"
-                )
-
-                st.write(
-                    f"**Visit:** "
-                    f"{case_record['visit_number']}"
-                )
-
-                st.write(
-                    f"**Date:** "
-                    f"{visit_date}"
-                )
-
-                st.write(
-                    f"**Time:** "
-                    f"{visit_time}"
-                )
-
-                st.write(
-                    f"**Chief Complaint:** "
-                    f"{complaint}"
-                )
-
-                st.write(
-                    f"**Language:** "
-                    f"{selected_language}"
-                )
-
-                st.write(
-                    f"**Symptoms:** "
-                    f"{', '.join(symptoms) if symptoms else 'None'}"
-                )
-
-                st.write(
-                    f"**Duration:** "
-                    f"{duration}"
-                )
-
-                st.write(
-                    f"**Severity:** "
-                    f"{severity}/10"
-                )
-
-                st.write(
-                    f"**Previous History:** "
-                    f"{previous_history if previous_history else 'None'}"
-                )
-
-                st.write(
-                    f"**Medications:** "
-                    f"{medications if medications else 'None'}"
+                st.success(
+                    "✅ Patient case saved successfully!"
                 )
 
 
-                # =============================================
-                # ADAPTIVE ANSWERS
-                # =============================================
+                # =========================================
+                # DISPLAY SUMMARY
+                # =========================================
 
-                st.markdown(
-                    "### 🤖 Follow-up Answers"
+                st.subheader(
+                    "📋 AI Case Summary"
                 )
 
-                if answers:
-
-                    for question, answer in answers.items():
-
-                        st.write(
-                            f"**{question}**"
-                        )
-
-                        st.write(
-                            answer
-                            if answer
-                            else "Not answered"
-                        )
-
-                else:
-
-                    st.write(
-                        "No follow-up questions."
-                    )
+                st.info(
+                    str(ai_summary)
+                )
 
 
-                # =============================================
-                # OCR RESULT
-                # =============================================
-
-                if extracted_report_text:
-
-                    st.markdown(
-                        "### 📄 OCR Medical Report"
-                    )
-
-                    st.text_area(
-                        "Extracted Report",
-                        value=extracted_report_text,
-                        height=200,
-                        key="saved_ocr_display"
-                    )
-
-
-                # =============================================
+                # =========================================
                 # RED FLAGS
-                # =============================================
+                # =========================================
 
-                st.markdown(
-                    "### 🚨 Red-Flag Status"
+                st.subheader(
+                    "🚨 Red Flag Analysis"
                 )
 
                 if red_flags:
 
-                    for flag in red_flags:
-
-                        st.error(
-                            f"⚠️ {flag}"
-                        )
+                    st.error(
+                        f"Potential red flags detected: "
+                        f"{red_flags}"
+                    )
 
                 else:
 
                     st.success(
-                        "No predefined red flags detected."
+                        "No major red flags detected by the system."
                     )
 
 
-                # =============================================
-                # STEP 12 - AI CASE SUMMARY DISPLAY
-                # =============================================
+                # =========================================
+                # OCR
+                # =========================================
 
-                st.markdown("---")
+                if extracted_report_text:
 
-                st.markdown(
-                    '<div class="section-title">'
-                    '🤖 AI Case Summary'
-                    '</div>',
-                    unsafe_allow_html=True
+                    st.subheader(
+                        "📄 Medical Report Information"
+                    )
+
+                    st.text_area(
+                        "OCR Result",
+                        extracted_report_text,
+                        height=200
+                    )
+
+
+            except Exception as e:
+
+                st.error(
+                    f"Error while saving case: {e}"
+                )
+
+
+# ============================================================
+# PATIENT HEALTH TIMELINE
+# ============================================================
+
+elif (
+    st.session_state.role == "Patient"
+    and menu == "Health Timeline"
+):
+
+    st.markdown(
+        '<div class="main-title">📅 Health Timeline</div>',
+        unsafe_allow_html=True
+    )
+
+
+    if not st.session_state.patient:
+
+        st.warning(
+            "Please register as a patient first."
+        )
+
+        st.stop()
+
+
+    patient = st.session_state.patient
+
+
+    try:
+
+        cases = get_patient_cases(
+            patient["id"]
+        )
+
+    except Exception as e:
+
+        cases = []
+
+        st.error(
+            f"Unable to load cases: {e}"
+        )
+
+
+    if not cases:
+
+        st.info(
+            "No previous patient visits found."
+        )
+
+    else:
+
+        st.success(
+            f"{len(cases)} visit(s) found."
+        )
+
+
+        for index, case in enumerate(
+            reversed(cases),
+            start=1
+        ):
+
+            visit_date = case.get(
+                "visit_date",
+                "Unknown"
+            )
+
+            complaint = case.get(
+                "complaint",
+                "Not available"
+            )
+
+            with st.expander(
+                f"Visit {index} • {visit_date} • {complaint}"
+            ):
+
+                st.write(
+                    f"**Complaint:** {complaint}"
                 )
 
                 st.write(
-                    "A structured summary has been generated "
-                    "from the information collected during "
-                    "this patient visit."
+                    f"**Symptoms:** "
+                    f"{case.get('symptoms', '')}"
                 )
 
-                summary_data = case_record.get(
-                    "ai_summary",
-                    {}
+                st.write(
+                    f"**Duration:** "
+                    f"{case.get('duration', '')}"
                 )
 
-                if summary_data:
+                st.write(
+                    f"**Severity:** "
+                    f"{case.get('severity', '')}/10"
+                )
 
-                    st.success(
-                        "✅ AI case summary generated successfully!"
+                st.write(
+                    f"**Previous History:** "
+                    f"{case.get('previous_history', '')}"
+                )
+
+                st.write(
+                    f"**Medications:** "
+                    f"{case.get('medications', '')}"
+                )
+
+                if case.get("ai_summary"):
+
+                    st.subheader(
+                        "AI Summary"
                     )
-
-
-                    # -----------------------------------------
-                    # CLINICAL CASE OVERVIEW
-                    # -----------------------------------------
-
-                    st.markdown(
-                        "### 🩺 Clinical Case Overview"
-                    )
-
-                    st.write(
-                        summary_data.get(
-                            "Summary",
-                            "Summary not available."
-                        )
-                    )
-
-
-                    # -----------------------------------------
-                    # STRUCTURED SUMMARY
-                    # -----------------------------------------
-
-                    st.markdown(
-                        "### 📋 Structured Case Summary"
-                    )
-
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-
-                        st.write(
-                            "**Chief Complaint**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "Chief Complaint",
-                                "Not available"
-                            )
-                        )
-
-                        st.write(
-                            "**Symptoms**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "Symptoms",
-                                "None"
-                            )
-                        )
-
-                        st.write(
-                            "**Duration**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "Duration",
-                                "Not available"
-                            )
-                        )
-
-                        st.write(
-                            "**Severity**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "Severity",
-                                "Not available"
-                            )
-                        )
-
-                    with col2:
-
-                        st.write(
-                            "**Previous Medical History**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "Previous Medical History",
-                                "None"
-                            )
-                        )
-
-                        st.write(
-                            "**Current Medications**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "Current Medications",
-                                "None"
-                            )
-                        )
-
-                        st.write(
-                            "**Report Available**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "OCR Report Available",
-                                "No"
-                            )
-                        )
-
-                        st.write(
-                            "**Language**"
-                        )
-
-                        st.write(
-                            summary_data.get(
-                                "Language",
-                                "English"
-                            )
-                        )
-
-
-                    # -----------------------------------------
-                    # FOLLOW-UP INFORMATION
-                    # -----------------------------------------
-
-                    st.markdown(
-                        "### 🤖 Follow-up Information"
-                    )
-
-                    follow_up_information = (
-                        summary_data.get(
-                            "Follow-up Information",
-                            []
-                        )
-                    )
-
-                    if follow_up_information:
-
-                        for information in (
-                            follow_up_information
-                        ):
-
-                            st.write(
-                                f"• {information}"
-                            )
-
-                    else:
-
-                        st.write(
-                            "No additional follow-up information."
-                        )
-
-
-                    # -----------------------------------------
-                    # RED FLAG SUMMARY
-                    # -----------------------------------------
-
-                    st.markdown(
-                        "### 🚨 Red-Flag Summary"
-                    )
-
-                    summary_red_flags = (
-                        summary_data.get(
-                            "Red Flags",
-                            []
-                        )
-                    )
-
-                    if summary_red_flags:
-
-                        for flag in summary_red_flags:
-
-                            if flag == "None detected":
-
-                                st.success(
-                                    "✅ No predefined red flags detected."
-                                )
-
-                            else:
-
-                                st.warning(
-                                    f"⚠️ {flag}"
-                                )
-
-                    else:
-
-                        st.success(
-                            "No predefined red flags detected."
-                        )
-
 
                     st.info(
-                        "ℹ️ This AI-generated summary is a "
-                        "documentation and decision-support "
-                        "feature. It is not a diagnosis or a "
-                        "substitute for professional clinical "
-                        "judgment."
+                        str(
+                            case.get(
+                                "ai_summary"
+                            )
+                        )
                     )
 
+                if case.get("red_flags"):
 
-        st.markdown(
-            "</div>",
-            unsafe_allow_html=True
-        )
-
-
-        # ========================================================
-        # PATIENT HEALTH TIMELINE
-        # ========================================================
-
-        st.markdown(
-            '<div class="card">',
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            '<div class="section-title">'
-            '🕒 Patient Health Timeline'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        st.write(
-            "Previous case records are permanently loaded "
-            "from the SQLite database."
-        )
-
-
-        # ========================================================
-        # REFRESH TIMELINE FROM DATABASE
-        # ========================================================
-
-        try:
-
-            database_history = (
-                get_patient_cases(
-                    patient["id"]
-                )
-            )
-
-            st.session_state.case_history = (
-                database_history
-            )
-
-        except Exception as e:
-
-            st.warning(
-                f"Could not refresh database history: {e}"
-            )
-
-
-        total_visits = len(
-            st.session_state.case_history
-        )
-
-        if total_visits > 0:
-
-            st.info(
-                f"📊 Total recorded visits: "
-                f"**{total_visits}**"
-            )
-
-        else:
-
-            st.info(
-                "No previous patient visits have been recorded yet."
-            )
-
-
-        # ========================================================
-        # DISPLAY TIMELINE
-        # ========================================================
-
-        if st.session_state.case_history:
-
-            history = list(
-                reversed(
-                    st.session_state.case_history
-                )
-            )
-
-            for case_index, history_case in enumerate(
-                history
-            ):
-
-                visit_number = history_case.get(
-                    "visit_number",
-                    case_index + 1
-                )
-
-                visit_date = history_case.get(
-                    "visit_date",
-                    "Not available"
-                )
-
-                visit_time = history_case.get(
-                    "visit_time",
-                    "Not available"
-                )
-
-                complaint_history = history_case.get(
-                    "complaint",
-                    "Not available"
-                )
-
-                history_symptoms = history_case.get(
-                    "symptoms",
-                    []
-                )
-
-                history_duration = history_case.get(
-                    "duration",
-                    "Not available"
-                )
-
-                history_severity = history_case.get(
-                    "severity",
-                    "Not available"
-                )
-
-                history_language = history_case.get(
-                    "language",
-                    "English"
-                )
-
-                history_red_flags = history_case.get(
-                    "red_flags",
-                    []
-                )
-
-
-                # ==============================================
-                # TIMELINE CARD
-                # ==============================================
-
-                st.markdown(
-                    '<div class="timeline-card">',
-                    unsafe_allow_html=True
-                )
-
-                st.markdown(
-                    f'<div class="timeline-date">'
-                    f'🩺 Visit {visit_number} '
-                    f'— {visit_date} at {visit_time}'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-
-                st.markdown(
-                    '</div>',
-                    unsafe_allow_html=True
-                )
-
-
-                # ==============================================
-                # EXPANDABLE VISIT DETAILS
-                # ==============================================
-
-                with st.expander(
-                    f"View Visit {visit_number} Details"
-                ):
-
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-
-                        st.write(
-                            "**Chief Complaint**"
-                        )
-
-                        st.write(
-                            complaint_history
-                        )
-
-                        st.write(
-                            "**Symptoms**"
-                        )
-
-                        st.write(
-                            ", ".join(history_symptoms)
-                            if history_symptoms
-                            else "None"
-                        )
-
-                        st.write(
-                            "**Duration**"
-                        )
-
-                        st.write(
-                            history_duration
-                        )
-
-                        st.write(
-                            "**Severity**"
-                        )
-
-                        st.write(
-                            f"{history_severity}/10"
-                        )
-
-                        st.write(
-                            "**Language**"
-                        )
-
-                        st.write(
-                            history_language
-                        )
-
-                    with col2:
-
-                        st.write(
-                            "**Previous Medical History**"
-                        )
-
-                        st.write(
-                            history_case.get(
-                                "previous_history"
-                            )
-                            or "None"
-                        )
-
-                        st.write(
-                            "**Current Medications**"
-                        )
-
-                        st.write(
-                            history_case.get(
-                                "medications"
-                            )
-                            or "None"
-                        )
-
-
-                    # ==========================================
-                    # ADAPTIVE ANSWERS
-                    # ==========================================
-
-                    st.markdown("---")
-
-                    st.write(
-                        "### 🤖 Adaptive Question Answers"
+                    st.subheader(
+                        "Red Flags"
                     )
 
-                    timeline_answers = history_case.get(
-                        "adaptive_answers",
-                        {}
-                    )
-
-                    if timeline_answers:
-
-                        for question, answer in (
-                            timeline_answers.items()
-                        ):
-
-                            st.write(
-                                f"**{question}**"
-                            )
-
-                            st.write(
-                                answer
-                                if answer
-                                else "Not answered"
-                            )
-
-                    else:
-
-                        st.write(
-                            "No adaptive questions recorded."
-                        )
-
-
-                    # ==========================================
-                    # AI CASE SUMMARY
-                    # ==========================================
-
-                    st.markdown("---")
-
-                    st.write(
-                        "### 🤖 AI Case Summary"
-                    )
-
-                    history_ai_summary = history_case.get(
-                        "ai_summary",
-                        {}
-                    )
-
-                    if history_ai_summary:
-
-                        st.write(
-                            history_ai_summary.get(
-                                "Summary",
-                                "Summary not available."
+                    st.warning(
+                        str(
+                            case.get(
+                                "red_flags"
                             )
                         )
-
-                        with st.expander(
-                            "View Structured AI Summary"
-                        ):
-
-                            st.write(
-                                "**Chief Complaint:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "Chief Complaint",
-                                        "Not available"
-                                    )
-                                )
-                            )
-
-                            st.write(
-                                "**Symptoms:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "Symptoms",
-                                        "None"
-                                    )
-                                )
-                            )
-
-                            st.write(
-                                "**Duration:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "Duration",
-                                        "Not available"
-                                    )
-                                )
-                            )
-
-                            st.write(
-                                "**Severity:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "Severity",
-                                        "Not available"
-                                    )
-                                )
-                            )
-
-                            st.write(
-                                "**Previous Medical History:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "Previous Medical History",
-                                        "None"
-                                    )
-                                )
-                            )
-
-                            st.write(
-                                "**Current Medications:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "Current Medications",
-                                        "None"
-                                    )
-                                )
-                            )
-
-                            st.write(
-                                "**Report Available:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "OCR Report Available",
-                                        "No"
-                                    )
-                                )
-                            )
-
-                            st.write(
-                                "**Language:** "
-                                + str(
-                                    history_ai_summary.get(
-                                        "Language",
-                                        "English"
-                                    )
-                                )
-                            )
-
-                    else:
-
-                        st.info(
-                            "No AI summary is available "
-                            "for this visit."
-                        )
-
-
-                    # ==========================================
-                    # OCR HISTORY
-                    # ==========================================
-
-                    timeline_ocr = history_case.get(
-                        "ocr_text",
-                        ""
                     )
 
-                    st.markdown("---")
+                if case.get("ocr_text"):
 
-                    st.write(
-                        "### 📄 Medical Report"
+                    st.subheader(
+                        "Medical Report"
+
                     )
 
-                    if timeline_ocr:
-
-                        st.text_area(
-                            "OCR Extracted Text",
-                            value=timeline_ocr,
-                            height=180,
-                            key=f"timeline_ocr_{visit_number}"
-                        )
-
-                    else:
-
-                        st.info(
-                            "No medical report was uploaded "
-                            "for this visit."
-                        )
-
-
-                    # ==========================================
-                    # RED FLAGS HISTORY
-                    # ==========================================
-
-                    st.markdown("---")
-
-                    st.write(
-                        "### 🚨 Red-Flag Status"
-                    )
-
-                    if history_red_flags:
-
-                        for flag in history_red_flags:
-
-                            st.error(
-                                f"⚠️ {flag}"
+                    st.text_area(
+                        "OCR Text",
+                        str(
+                            case.get(
+                                "ocr_text"
                             )
-
-                    else:
-
-                        st.success(
-                            "No predefined red-flag indicators "
-                            "were detected for this visit."
-                        )
-
-
-        st.markdown(
-            "</div>",
-            unsafe_allow_html=True
-        )
+                        ),
+                        height=150,
+                        key=f"timeline_ocr_{index}"
+                    )
 
 
 # ============================================================
 # DOCTOR DASHBOARD
 # ============================================================
 
-elif st.session_state.role == "Doctor":
-
-    st.success(
-        "✅ Doctor login successful!"
-    )
+elif (
+    st.session_state.role == "Doctor"
+    and menu == "Doctor Dashboard"
+):
 
     st.markdown(
-        '<div class="card">',
+        '<div class="main-title">👨‍⚕️ Doctor Dashboard</div>',
         unsafe_allow_html=True
     )
 
     st.markdown(
-        '<div class="section-title">'
-        '👨‍⚕️ Doctor Dashboard'
+        '<div class="sub-title">'
+        'Patient overview, visit history and case analysis'
         '</div>',
         unsafe_allow_html=True
     )
 
-    st.write(
-        "Doctor dashboard for reviewing registered "
-        "patients and their case history."
-    )
-
 
     # ========================================================
-    # LOAD ALL PATIENTS FROM SQLITE
+    # LOAD DATA
     # ========================================================
 
     try:
 
-        all_patients = get_all_patients()
+        patients = get_all_patients()
 
-    except Exception as e:
+    except Exception:
 
-        all_patients = []
-
-        st.error(
-            f"Could not load patients: {e}"
-        )
+        patients = []
 
 
     try:
 
-        all_cases = get_all_cases()
+        cases = get_all_cases()
 
-    except Exception as e:
+    except Exception:
 
-        all_cases = []
+        cases = []
 
-        st.error(
-            f"Could not load cases: {e}"
+
+    # ========================================================
+    # METRICS
+    # ========================================================
+
+    alert_count = 0
+
+
+    for case in cases:
+
+        red_flags = case.get(
+            "red_flags",
+            ""
         )
 
+        if red_flags:
 
-    # ========================================================
-    # DASHBOARD STATISTICS
-    # ========================================================
+            alert_count += 1
 
-    total_patients = len(
-        all_patients
-    )
-
-    total_cases = len(
-        all_cases
-    )
-
-    total_alert_cases = sum(
-        1
-        for case_item in all_cases
-        if case_item.get("red_flags")
-    )
 
     col1, col2, col3 = st.columns(3)
+
 
     with col1:
 
         st.metric(
-            "👥 Total Patients",
-            total_patients
+            "Total Patients",
+            len(patients)
         )
+
 
     with col2:
 
         st.metric(
-            "🩺 Total Visits",
-            total_cases
+            "Total Visits",
+            len(cases)
         )
+
 
     with col3:
 
         st.metric(
-            "🚨 Alert Cases",
-            total_alert_cases
+            "Alert Cases",
+            alert_count
         )
 
 
-    # ========================================================
-    # PATIENT SEARCH
-    # ========================================================
-
     st.markdown("---")
 
+
+    # ========================================================
+    # RECENT CASES
+    # ========================================================
+
     st.subheader(
-        "🔎 Search Patient"
+        "🕐 Recent Cases"
     )
+
+
+    if cases:
+
+        recent_cases = cases[-10:]
+
+        for index, case in enumerate(
+            reversed(recent_cases),
+            start=1
+        ):
+
+            complaint = case.get(
+                "complaint",
+                "Unknown complaint"
+            )
+
+            visit_date = case.get(
+                "visit_date",
+                ""
+            )
+
+            with st.expander(
+                f"{index}. {complaint} • {visit_date}"
+            ):
+
+                st.write(
+                    f"**Patient ID:** "
+                    f"{case.get('patient_id', 'N/A')}"
+                )
+
+                st.write(
+                    f"**Complaint:** "
+                    f"{complaint}"
+                )
+
+                st.write(
+                    f"**Symptoms:** "
+                    f"{case.get('symptoms', '')}"
+                )
+
+                st.write(
+                    f"**Severity:** "
+                    f"{case.get('severity', '')}/10"
+                )
+
+                if case.get("ai_summary"):
+
+                    st.subheader(
+                        "AI Summary"
+                    )
+
+                    st.info(
+                        str(
+                            case.get(
+                                "ai_summary"
+                            )
+                        )
+                    )
+
+                if case.get("red_flags"):
+
+                    st.error(
+                        f"Red Flags: "
+                        f"{case.get('red_flags')}"
+                    )
+
+    else:
+
+        st.info(
+            "No patient cases available."
+        )
+
+
+# ============================================================
+# DOCTOR PATIENT RECORDS
+# ============================================================
+
+elif (
+    st.session_state.role == "Doctor"
+    and menu == "Patient Records"
+):
+
+    st.markdown(
+        '<div class="main-title">👥 Patient Records</div>',
+        unsafe_allow_html=True
+    )
+
+
+    try:
+
+        patients = get_all_patients()
+
+    except Exception as e:
+
+        st.error(
+            f"Unable to load patients: {e}"
+        )
+
+        patients = []
+
+
+    # ========================================================
+    # SEARCH
+    # ========================================================
 
     search_text = st.text_input(
-        "Search by patient name or phone number",
-        placeholder="Enter patient name or phone..."
+        "🔎 Search patient by name or phone"
     )
 
-    filtered_patients = all_patients
 
-    if search_text.strip():
+    filtered_patients = []
 
-        search_lower = search_text.lower()
 
-        filtered_patients = [
+    for patient in patients:
 
-            patient_item
-
-            for patient_item in all_patients
-
-            if (
-                search_lower
-                in str(
-                    patient_item.get(
-                        "name",
-                        ""
-                    )
-                ).lower()
-                or
-                search_lower
-                in str(
-                    patient_item.get(
-                        "phone",
-                        ""
-                    )
-                ).lower()
+        name = str(
+            patient.get(
+                "name",
+                patient.get(
+                    "full_name",
+                    ""
+                )
             )
-        ]
+        ).lower()
+
+        phone = str(
+            patient.get(
+                "phone",
+                ""
+            )
+        ).lower()
+
+
+        if (
+            not search_text
+            or search_text.lower() in name
+            or search_text.lower() in phone
+        ):
+
+            filtered_patients.append(
+                patient
+            )
 
 
     # ========================================================
     # PATIENT LIST
     # ========================================================
 
-    st.subheader(
-        "👥 Registered Patients"
-    )
+    if not filtered_patients:
 
-    if filtered_patients:
+        st.info(
+            "No patients found."
+        )
 
-        for patient_item in filtered_patients:
+    else:
 
-            patient_id = patient_item.get(
+        for patient in filtered_patients:
+
+            patient_id = patient.get(
                 "id"
             )
 
-            patient_name = patient_item.get(
+            name = patient.get(
                 "name",
-                "Unknown"
+                patient.get(
+                    "full_name",
+                    "Unknown"
+                )
             )
 
             with st.expander(
-                f"Patient #{patient_id} — {patient_name}"
+                f"👤 {name} • ID: {patient_id}"
             ):
 
                 col1, col2 = st.columns(2)
+
 
                 with col1:
 
                     st.write(
                         f"**Age:** "
-                        f"{patient_item.get('age', 'N/A')}"
+                        f"{patient.get('age', '')}"
                     )
 
                     st.write(
                         f"**Gender:** "
-                        f"{patient_item.get('gender', 'N/A')}"
+                        f"{patient.get('gender', '')}"
                     )
 
                     st.write(
                         f"**Phone:** "
-                        f"{patient_item.get('phone', 'N/A')}"
+                        f"{patient.get('phone', '')}"
                     )
 
-                    st.write(
-                        f"**Blood Group:** "
-                        f"{patient_item.get('blood_group', 'N/A')}"
-                    )
 
                 with col2:
 
                     st.write(
                         f"**Email:** "
-                        f"{patient_item.get('email', 'N/A')}"
+                        f"{patient.get('email', '')}"
                     )
 
                     st.write(
                         f"**Language:** "
-                        f"{patient_item.get('language', 'N/A')}"
+                        f"{patient.get('preferred_language', patient.get('language', ''))}"
                     )
 
                     st.write(
-                        f"**Emergency Contact:** "
-                        f"{patient_item.get('emergency_contact', 'N/A')}"
-                    )
-
-                    st.write(
-                        f"**Registered:** "
-                        f"{patient_item.get('created_at', 'N/A')}"
+                        f"**Blood Group:** "
+                        f"{patient.get('blood_group', '')}"
                     )
 
 
-                # ==========================================
-                # PATIENT CASES
-                # ==========================================
+                # =========================================
+                # PATIENT VISITS
+                # =========================================
 
                 try:
 
@@ -2476,267 +2139,131 @@ elif st.session_state.role == "Doctor":
 
                 st.markdown("---")
 
-                st.write(
-                    "### 🩺 Patient Visit History"
+                st.subheader(
+                    f"📅 Visit History ({len(patient_cases)})"
                 )
 
-                if patient_cases:
 
-                    for patient_case in patient_cases:
+                if not patient_cases:
 
-                        visit_number = patient_case.get(
-                            "visit_number",
-                            "N/A"
+                    st.info(
+                        "No visit records."
+                    )
+
+                else:
+
+                    for visit_index, case in enumerate(
+                        reversed(patient_cases),
+                        start=1
+                    ):
+
+                        visit_date = case.get(
+                            "visit_date",
+                            ""
                         )
 
-                        visit_date = patient_case.get(
-                            "visit_date",
-                            "N/A"
+                        complaint = case.get(
+                            "complaint",
+                            "Unknown"
                         )
 
                         with st.expander(
-                            f"Visit {visit_number} "
-                            f"| {visit_date}"
+                            f"Visit {visit_index} • {visit_date} • {complaint}"
                         ):
 
                             st.write(
-                                f"**Chief Complaint:** "
-                                f"{patient_case.get('complaint', 'N/A')}"
-                            )
-
-                            case_symptoms = (
-                                patient_case.get(
-                                    "symptoms",
-                                    []
-                                )
-                            )
-
-                            st.write(
                                 f"**Symptoms:** "
-                                f"{', '.join(case_symptoms) if case_symptoms else 'None'}"
+                                f"{case.get('symptoms', '')}"
                             )
 
                             st.write(
                                 f"**Duration:** "
-                                f"{patient_case.get('duration', 'N/A')}"
+                                f"{case.get('duration', '')}"
                             )
 
                             st.write(
                                 f"**Severity:** "
-                                f"{patient_case.get('severity', 'N/A')}/10"
+                                f"{case.get('severity', '')}/10"
                             )
 
                             st.write(
                                 f"**Previous History:** "
-                                f"{patient_case.get('previous_history') or 'None'}"
+                                f"{case.get('previous_history', '')}"
                             )
 
                             st.write(
                                 f"**Medications:** "
-                                f"{patient_case.get('medications') or 'None'}"
+                                f"{case.get('medications', '')}"
                             )
 
 
-                            # ----------------------------------
-                            # AI SUMMARY
-                            # ----------------------------------
+                            if case.get(
+                                "adaptive_answers"
+                            ):
 
-                            doctor_summary = (
-                                patient_case.get(
-                                    "ai_summary",
-                                    {}
+                                st.subheader(
+                                    "Adaptive Answers"
                                 )
-                            )
 
-                            if doctor_summary:
+                                st.json(
+                                    case.get(
+                                        "adaptive_answers"
+                                    )
+                                )
 
-                                st.markdown(
-                                    "#### 🤖 AI Case Summary"
+
+                            if case.get(
+                                "ai_summary"
+                            ):
+
+                                st.subheader(
+                                    "AI Case Summary"
                                 )
 
                                 st.info(
-                                    doctor_summary.get(
-                                        "Summary",
-                                        "Summary not available."
+                                    str(
+                                        case.get(
+                                            "ai_summary"
+                                        )
                                     )
                                 )
 
 
-                            # ----------------------------------
-                            # RED FLAGS
-                            # ----------------------------------
+                            if case.get(
+                                "red_flags"
+                            ):
 
-                            doctor_flags = (
-                                patient_case.get(
-                                    "red_flags",
-                                    []
+                                st.subheader(
+                                    "🚨 Red Flags"
                                 )
-                            )
 
-                            st.markdown(
-                                "#### 🚨 Red-Flag Status"
-                            )
-
-                            if doctor_flags:
-
-                                for flag in doctor_flags:
-
-                                    st.warning(
-                                        f"⚠️ {flag}"
+                                st.error(
+                                    str(
+                                        case.get(
+                                            "red_flags"
+                                        )
                                     )
-
-                            else:
-
-                                st.success(
-                                    "No predefined red flags detected."
                                 )
 
 
-                            # ----------------------------------
-                            # OCR
-                            # ----------------------------------
+                            if case.get(
+                                "ocr_text"
+                            ):
 
-                            doctor_ocr = (
-                                patient_case.get(
-                                    "ocr_text",
-                                    ""
-                                )
-                            )
-
-                            if doctor_ocr:
-
-                                st.markdown(
-                                    "#### 📄 OCR Medical Report"
+                                st.subheader(
+                                    "📄 OCR Medical Report"
                                 )
 
                                 st.text_area(
-                                    "Extracted Report",
-                                    value=doctor_ocr,
-                                    height=180,
-                                    key=(
-                                        f"doctor_ocr_"
-                                        f"{patient_id}_"
-                                        f"{visit_number}"
-                                    )
+                                    "Extracted Text",
+                                    str(
+                                        case.get(
+                                            "ocr_text"
+                                        )
+                                    ),
+                                    height=200,
+                                    key=f"doctor_ocr_{patient_id}_{visit_index}"
                                 )
-
-                else:
-
-                    st.info(
-                        "No visits recorded for this patient."
-                    )
-
-    else:
-
-        st.info(
-            "No matching patients found."
-        )
-
-
-    # ========================================================
-    # RECENT CASES
-    # ========================================================
-
-    st.markdown("---")
-
-    st.subheader(
-        "📋 Recent Patient Cases"
-    )
-
-    if all_cases:
-
-        for recent_case in all_cases[:20]:
-
-            patient_name = recent_case.get(
-                "patient_name",
-                "Unknown"
-            )
-
-            visit_number = recent_case.get(
-                "visit_number",
-                "N/A"
-            )
-
-            visit_date = recent_case.get(
-                "visit_date",
-                "N/A"
-            )
-
-            with st.expander(
-                f"{patient_name} | "
-                f"Visit {visit_number} | "
-                f"{visit_date}"
-            ):
-
-                st.write(
-                    f"**Complaint:** "
-                    f"{recent_case.get('complaint', 'N/A')}"
-                )
-
-                recent_symptoms = (
-                    recent_case.get(
-                        "symptoms",
-                        []
-                    )
-                )
-
-                st.write(
-                    f"**Symptoms:** "
-                    f"{', '.join(recent_symptoms) if recent_symptoms else 'None'}"
-                )
-
-                st.write(
-                    f"**Severity:** "
-                    f"{recent_case.get('severity', 'N/A')}/10"
-                )
-
-                recent_flags = (
-                    recent_case.get(
-                        "red_flags",
-                        []
-                    )
-                )
-
-                if recent_flags:
-
-                    st.error(
-                        "🚨 Red Flags: "
-                        + ", ".join(recent_flags)
-                    )
-
-                else:
-
-                    st.success(
-                        "No predefined red flags detected."
-                    )
-
-                recent_summary = (
-                    recent_case.get(
-                        "ai_summary",
-                        {}
-                    )
-                )
-
-                if recent_summary:
-
-                    st.info(
-                        recent_summary.get(
-                            "Summary",
-                            "No summary available."
-                        )
-                    )
-
-    else:
-
-        st.info(
-            "No patient cases available."
-        )
-
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True
-    )
 
 
 # ============================================================
@@ -2744,9 +2271,17 @@ elif st.session_state.role == "Doctor":
 # ============================================================
 
 st.markdown(
-    '<div class="footer">'
-    'Secure • Smart • Patient-Centered Healthcare • '
-    'SQLite Database'
-    '</div>',
+    """
+    <div class="footer">
+        🏥 Patient Case Taking Software |
+        Multilingual Voice Assistant |
+        NLP |
+        Adaptive Questioning |
+        OCR |
+        Red Flag Detection |
+        AI Case Summary |
+        Patient Timeline
+    </div>
+    """,
     unsafe_allow_html=True
 )
