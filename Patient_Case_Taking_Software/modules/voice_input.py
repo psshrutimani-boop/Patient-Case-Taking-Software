@@ -1,51 +1,66 @@
-
 import io
 import speech_recognition as sr
 
 
-def get_language_code(language):
+# ============================================================
+# LANGUAGE CODES
+# ============================================================
 
-    language_codes = {
-        "English": "en-IN",
-        "Tamil": "ta-IN",
-        "Hindi": "hi-IN"
-    }
+LANGUAGE_CODES = {
+    "English": "en-IN",
+    "Tamil": "ta-IN",
+    "Hindi": "hi-IN"
+}
 
-    return language_codes.get(
+
+# ============================================================
+# GET LANGUAGE CODE
+# ============================================================
+
+def get_language_code(language="English"):
+
+    return LANGUAGE_CODES.get(
         language,
         "en-IN"
     )
 
+
+# ============================================================
+# VOICE TO TEXT
+# ============================================================
 
 def convert_voice_to_text(
     audio_bytes,
     language="English"
 ):
 
-    recognizer = sr.Recognizer()
+    if not audio_bytes:
+        return ""
 
     try:
 
-        language_code = get_language_code(
-            language
-        )
+        # Streamlit AudioInput / UploadedFile support
+        if hasattr(audio_bytes, "getvalue"):
+            audio_bytes = audio_bytes.getvalue()
 
-        audio_file = io.BytesIO(
-            audio_bytes
-        )
+        recognizer = sr.Recognizer()
+
+        language_code = get_language_code(language)
+
+        audio_file = io.BytesIO(audio_bytes)
 
         with sr.AudioFile(audio_file) as source:
 
-            audio = recognizer.record(
-                source
-            )
+            # Record complete audio
+            audio = recognizer.record(source)
 
+        # Google Speech Recognition
         text = recognizer.recognize_google(
             audio,
             language=language_code
         )
 
-        return text
+        return text.strip()
 
     except sr.UnknownValueError:
 
